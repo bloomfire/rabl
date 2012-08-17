@@ -47,7 +47,7 @@ module Rabl
       end if @options.has_key?(:child)
       # Glues
       @options[:glue].each do |settings|
-        glue(settings[:data], &settings[:block])
+        glue(settings[:data], settings[:options], &settings[:block])
       end if @options.has_key?(:glue)
 
       # Wrap result in root
@@ -91,17 +91,18 @@ module Rabl
       return false unless data.present? && resolve_condition(options)
       name, object = data_name(data), data_object(data)
       include_root = is_collection?(object) && @options[:child_root] # child @users
-      engine_options = @options.slice(:child_root).merge(:root => include_root)
+      engine_options = @options.slice(:child_root).merge(:root => include_root, :locals => options[:locals])
       object = { object => name } if data.respond_to?(:each_pair) && object # child :users => :people
       @_result[name] = self.object_to_hash(object, engine_options, &block)
     end
 
     # Glues data from a child node to the json_output
     # glue(@user) { attribute :full_name => :user_full_name }
-    def glue(data, &block)
+    def glue(data, options={}, &block)
       return false unless data.present?
       object = data_object(data)
-      glued_attributes = self.object_to_hash(object, :root => false, &block)
+      engine_options = {:root => false, :locals => options[:locals]}
+      glued_attributes = self.object_to_hash(object, engine_options, &block)
       @_result.merge!(glued_attributes) if glued_attributes
     end
 

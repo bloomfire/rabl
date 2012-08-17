@@ -176,8 +176,8 @@ module Rabl
 
     # Glues data from a child node to the json_output
     # glue(@user) { attribute :full_name => :user_full_name }
-    def glue(data, &block)
-      @_options[:glue].push({ :data => data, :block => block })
+    def glue(data, options={}, &block)
+      @_options[:glue].push({ :data => data, :options => options, :block => block })
     end
 
     # Extends an existing rabl template with additional attributes in the block
@@ -240,7 +240,13 @@ module Rabl
 
     # Supports calling helpers defined for the template scope using method_missing hook
     def method_missing(name, *args, &block)
-      context_scope.respond_to?(name, true) ? context_scope.__send__(name, *args, &block) : super
+      if context_scope.respond_to?(name, true)
+        context_scope.__send__(name, *args, &block)
+      elsif defined?(@_locals) && (local = @_locals[name])
+        local
+      else
+        super
+      end
     end
 
     def copy_instance_variables_from(object, exclude = []) #:nodoc:
