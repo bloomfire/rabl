@@ -34,8 +34,8 @@ module Rabl
         extends(settings[:file], settings[:options], &settings[:block])
       end if @options.has_key?(:extends)
       # Attributes
-      @options[:attributes].each_pair do |attribute, name|
-        attribute(attribute, :as => name)
+      @options[:attributes].each_pair do |attribute, settings|
+        attribute(attribute, settings)
       end if @options.has_key?(:attributes)
       # Node
       @options[:node].each do |settings|
@@ -57,19 +57,29 @@ module Rabl
         @_root_name = nil
       end
 
+      # Replace nil values with empty strings if configured
+      if Rabl.configuration.replace_nil_values_with_empty_strings
+        @_result = @_result.inject({}) do |hash, (k, v)|
+          hash[k] = v.nil? ? '' : v
+          hash
+        end
+      end
+
       # Return Results
       @_root_name ? { @_root_name => @_result } : @_result
     end
 
     # Indicates an attribute or method should be included in the json output
     # attribute :foo, :as => "bar"
+    # attribute :foo, :as => "bar", :if => lambda { |m| m.foo }
     def attribute(name, options={})
-      @_result[options[:as] || name] = data_object_attribute(name) if @_object && @_object.respond_to?(name)
+      if @_object && attribute_present?(name) && resolve_condition(options)
+        @_result[options[:as] || name] = data_object_attribute(name)
+      end
     end
     alias_method :attributes, :attribute
 
     # Creates an arbitrary node that is included in the json output
-    # node(:foo) { "bar" }
     # node(:foo) { "bar" }
     # node(:foo, :if => lambda { |m| m.foo.present? }) { "bar" }
     def node(name, options={}, &block)
@@ -90,7 +100,7 @@ module Rabl
     def child(data, options={}, &block)
       return false unless data.present? && resolve_condition(options)
       name, object = data_name(data), data_object(data)
-      include_root = is_collection?(object) && @options[:child_root] # child @users
+      include_root = is_collection?(object) && options.fetch(:object_root, @options[:child_root]) # child @users
       engine_options = @options.slice(:child_root).merge(:root => include_root, :locals => options[:locals])
       object = { object => name } if data.respond_to?(:each_pair) && object # child :users => :people
       @_result[name] = self.object_to_hash(object, engine_options, &block)
@@ -99,10 +109,9 @@ module Rabl
     # Glues data from a child node to the json_output
     # glue(@user) { attribute :full_name => :user_full_name }
     def glue(data, options={}, &block)
-      return false unless data.present?
+      return false unless data.present? && resolve_condition(options)
       object = data_object(data)
-      engine_options = {:root => false, :locals => options[:locals]}
-      glued_attributes = self.object_to_hash(object, engine_options, &block)
+      glued_attributes = self.object_to_hash(object, :root => false, :locals => options[:locals], &block)
       @_result.merge!(glued_attributes) if glued_attributes
     end
 
@@ -111,7 +120,7 @@ module Rabl
     def extends(file, options={}, &block)
       options = @options.slice(:child_root).merge(:object => @_object).merge(options)
       result = self.partial(file, options, &block)
-      @_result.merge!(result) if result
+      @_result.merge!(result) if result.is_a?(Hash)
     end
 
     # resolve_condition(:if => true) => true
@@ -125,6 +134,18 @@ module Rabl
     end
 
     private
+
+    # Checks if an attribute is present. If not, check if the configuration specifies that this is an error
+    # attribute_present?(created_at) => true
+    def attribute_present?(name)
+      if @_object.respond_to?(name)
+        return true
+      elsif Rabl.configuration.raise_on_missing_attribute
+        raise "Failed to render missing attribute #{name}"
+      else
+        return false
+      end
+    end
 
     # Returns a guess at the format in this scope
     # request_format => "xml"

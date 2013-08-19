@@ -1,9 +1,14 @@
 # RABL #
 
-RABL (Ruby API Builder Language) is a Rails and [Padrino](http://padrinorb.com) ruby templating system for generating JSON, XML, MessagePack, PList and BSON. When using the ActiveRecord 'to_json' method, I tend to quickly find myself wanting a more expressive and powerful solution for generating APIs.
-This is especially frustrating when the JSON representation is complex or doesn't match the exact schema defined in the database.
+[![Continuous Integration status](https://secure.travis-ci.org/nesquena/rabl.png)](http://travis-ci.org/nesquena/rabl)
+[![Dependency Status](https://gemnasium.com/nesquena/rabl.png)](https://gemnasium.com/nesquena/rabl)
+[![Code Climate](https://codeclimate.com/github/nesquena/rabl.png)](https://codeclimate.com/github/nesquena/rabl)
 
-I wanted a simple and flexible system for generating my APIs. In particular, I wanted to easily:
+RABL (Ruby API Builder Language) is a Rails and [Padrino](http://padrinorb.com) ruby templating system for generating JSON, XML, MessagePack, PList and BSON.
+When using the ActiveRecord 'to_json' method, I find myself wanting a more expressive and powerful solution for generating APIs.
+This is especially true when the JSON representation is complex or doesn't match the exact schema defined within the database.
+
+In particular, I want to easily:
 
  * Create arbitrary nodes named based on combining data in an object
  * Pass arguments to methods and store the result as a child node
@@ -13,9 +18,17 @@ I wanted a simple and flexible system for generating my APIs. In particular, I w
  * Include nodes only if a certain condition has been met
 
 Anyone who has tried the 'to_json' method used in ActiveRecord for generating a JSON response has felt the pain of this restrictive approach.
-RABL is a general templating system created to solve these problems in an entirely new way.
+RABL is a general templating system created to solve these problems by approaching API response generation in an entirely new way.
+
+RABL at the core is all about adhering to MVC principles by deferring API data representations to the **view** layer of your application.
+For a breakdown of common misconceptions about RABL, please check out our guide to
+[understanding RABL](https://github.com/nesquena/rabl/wiki/Understanding-RABL) which can help clear up any confusion about this project.
 
 ## Breaking Changes ##
+
+ * v0.8.0 (released Feb 14, 2013) removes multi_json dependency and
+   relies on Oj (or JSON) as the json parser. Simplifies code, removes a dependency
+   but you might want to remove any references to MultiJson.
 
  * v0.6.14 (released June 28, 2012) requires the use of render_views
    with RSpec to test templates. Otherwise, the controller will simply
@@ -34,13 +47,13 @@ or add to your Gemfile:
 ```ruby
 # Gemfile
 gem 'rabl'
-# Also add either `json` or `yajl-ruby` as the JSON parser
-gem 'yajl-ruby'
+# Also add either `oj` or `yajl-ruby` as the JSON parser
+gem 'oj'
 ```
 
 and run `bundle install` to install the dependency.
 
-If you are using **Rails 2.X, Rails 3.X or Padrino**, RABL works without configuration.
+If you are using **Rails 2.3.8 (and up), Rails 3.X or Padrino**, RABL works without configuration.
 
 **Important:** With Padrino, be sure that **the rabl gem is listed after the padrino gem in your Gemfile**, otherwise
 Rabl will not register properly as a template engine.
@@ -103,13 +116,15 @@ RABL is intended to require little to no configuration to get working. This is t
 
 ```ruby
 # config/initializers/rabl_init.rb
+require 'rabl'
 Rabl.configure do |config|
   # Commented as these are defaults
   # config.cache_all_output = false
   # config.cache_sources = Rails.env != 'development' # Defaults to false
   # config.cache_engine = Rabl::CacheEngine.new # Defaults to Rails cache
+  # config.perform_caching = false
   # config.escape_all_output = false
-  # config.json_engine = nil # Any multi\_json engines
+  # config.json_engine = nil # Class with #dump class method (defaults JSON)
   # config.msgpack_engine = nil # Defaults to ::MessagePack
   # config.bson_engine = nil # Defaults to ::BSON
   # config.plist_engine = nil # Defaults to ::Plist::Emit
@@ -122,6 +137,8 @@ Rabl.configure do |config|
   # config.enable_json_callbacks = false
   # config.xml_options = { :dasherize  => true, :skip_types => false }
   # config.view_paths = []
+  # config.raise_on_missing_attribute = true # Defaults to false
+  # config.replace_nil_values_with_empty_strings = true # Defaults to false
 end
 ```
 
@@ -133,6 +150,10 @@ If `include_child_root` is set to false then child objects in the response will 
 a root node by default. This allows you to further fine-tune your desired response structure.
 
 If `cache_engine` is set, you should assign it to a class with a `fetch` method. See the [default engine](https://github.com/nesquena/rabl/blob/master/lib/rabl/cache_engine.rb) for an example.
+
+If `perform_caching` is set to `true` then it will perform caching. You
+can ignore this option if you are using Rails, it's same to Rails
+`config.action_controller.perform_caching`
 
 If `cache_sources` is set to `true`, template lookups will be cached for improved performance.
 The cache can be reset manually by running `Rabl.reset_source_cache!` within your application.
@@ -147,16 +168,28 @@ Custom nodes will not be escaped, use `ERB::Util.h(value)`.
 If `view_paths` is set to a path, this view path will be checked for every rabl template within your application.
 Add to this path especially when including Rabl in an engine and using view paths within a another Rails app.
 
-Note that the `json_engine` option uses [multi_json](http://intridea.com/2010/6/14/multi-json-the-swappable-json-handler) engine
-defaults so that in most cases you **don't need to configure this** directly. If you wish to use yajl as
+If `raise_on_missing_attribute` is set to `true`, a RuntimeError will be raised whenever Rabl
+attempts to render an attribute that does not exist. Otherwise, the attribute will simply be omitted.
+Setting this to true during development may help increase the robustness of your code, but using `true` in
+production code is not recommended.
+
+If `replace_nil_values_with_empty_strings` is set to `true`, all values that are `nil` and would normally be displayed as `null` in the response are converted to empty strings.
+
+If you wish to use [oj](https://github.com/ohler55/oj) as
 the primary JSON encoding engine simply add that to your Gemfile:
 
 ```ruby
 # Gemfile
-gem 'yajl-ruby', :require => "yajl"
+gem 'oj'
 ```
 
-and RABL will automatically start using that engine for encoding your JSON responses!
+and RABL will use that engine automatically for encoding your JSON responses.
+Set your own custom json_engine which define a `dump` or `encode`
+method for converting to JSON from ruby data:
+
+```ruby
+config.json_engine = ActiveSupport::JSON
+```
 
 ### Format Configuration ###
 
@@ -243,6 +276,13 @@ attributes :bar => :baz, :dog => :animal
 # => # { baz : <bar value>, animal : <dog value> }
 ```
 
+or show attributes only if a condition is true:
+
+```ruby
+# m is the object being rendered, also supports :unless
+attributes :foo, :bar, :if => lambda { |m| m.condition? }
+```
+
 Named and aliased attributes can not be combined on the same line. This currently does not work:
 
 ```ruby
@@ -256,6 +296,13 @@ Often a response requires including nested information from data associated with
 ```ruby
 child :address do
   attributes :street, :city, :zip, :state
+end
+```
+
+You can also disable object root for child node:
+```ruby
+child :posts, :object_root => false do
+  attributes :id, :title
 end
 ```
 
@@ -386,6 +433,33 @@ Using partials and inheritance can significantly reduce code duplication in your
 
 You can see more examples on the [Reusing Templates wiki page](https://github.com/nesquena/rabl/wiki/Reusing-templates).
 
+### Passing Locals in Partials ###
+
+You can pass an arbitrary set of locals when rendering partials or extending templates.
+For example, if we want to show on `posts/:id.json` any information regarding particular post and associated comments
+but in other cases we want to hide those comments. We can use locals to do this:
+
+```ruby
+# app/views/posts/index.json.rabl
+collection @posts
+
+extends('posts/show', :locals => { :hide_comments => true })
+# or using partial instead of extends
+# node(false) { |post| partial('posts/show', :object => :post, :locals => { :hide_comments => true })}
+```
+
+and then access locals in the sub-template:
+
+```ruby
+# app/views/posts/show.json.rabl
+object @post
+
+attributes :id, :title, :body, :created_at
+node(:comments) { |post| post.comments } unless locals[:hide_comments]
+```
+
+This can be useful as an advanced tool when extending or rendering partials.
+
 ### Template Scope ###
 
 In RABL, you have access to everything you need to build an API response. Each RABL template has full access to the controllers
@@ -449,17 +523,20 @@ Rabl.render(object, template, :view_path => 'app/views', :format => :json) #=> "
 You can use convenience methods on `Rabl::Renderer` to render the objects as well:
 
 ```ruby
-Rabl::Renderer.new(@post, 'posts/show', :view_path => 'app/views')
 Rabl::Renderer.json(@post, 'posts/show')
 Rabl::Renderer.xml(@post, 'posts/show')
 ```
 
 These methods allow RABL to be used for arbitrary conversions of an object into a desired format.
 
+```ruby
+Rabl::Renderer.new('posts/show', @post, :view_path => 'app/views', :format => 'hash').render
+```
+
 You can also pass in other instance variables to be used in your template as:
 
 ```ruby
-Rabl::Renderer.new(@post, 'posts/show', :locals => { :custom_title => "Hello world!" })
+Rabl::Renderer.new('posts/show', @post, :locals => { :custom_title => "Hello world!" })
 ````
 
 Then, in your template, you can use `@custom_title` as:
@@ -472,7 +549,7 @@ node(:title) { @custom_title }
 ### Content Type Headers ###
 
 Currently in RABL, the content-type of your response is not set automatically. This is because RABL is intended
-to work for any Rack-based framework and as agostic to format as possible.
+to work for any Rack-based framework and as agnostic to format as possible.
 Check [this issue](https://github.com/nesquena/rabl/issues/185#issuecomment-4501232) for more
 details, and if you have any ideas or patches please let me know.
 
@@ -483,15 +560,19 @@ Rails and Padrino. I recommend a before_filter on that controller or directly sp
 
 There are many resources available relating to RABL including the [RABL Wiki](https://github.com/nesquena/rabl/wiki),
 and many tutorials and guides detailed below.
+You can check out the [RABL Site](http://nesquena.github.com/rabl) as well.
 
 ### Advanced Usage ###
 
 Links to resources for advanced usage:
 
- * Grape Integration: https://github.com/nesquena/rabl/wiki/Using-Rabl-with-Grape
- * Rendering JSON for a tree structure using RABL: https://github.com/nesquena/rabl/issues/70
- * Layouts (erb, haml and rabl) in RABL: https://github.com/nesquena/rabl/wiki/Using-Layouts
- * Backbone or [Ember.js](http://www.emberjs.com) Integration: https://github.com/nesquena/rabl/wiki/Backbone-Integration
+ * [Managing Complexity](https://github.com/nesquena/rabl/wiki/Managing-complexity-with-presenters)
+ * [Production Optimizations](https://github.com/nesquena/rabl/wiki/Rabl-In-Production)
+ * [Grape Integration](https://github.com/nesquena/rabl/wiki/Using-Rabl-with-Grape)
+ * [Rendering JSON for a tree structure using RABL](https://github.com/nesquena/rabl/issues/70)
+ * [Layouts (erb, haml and rabl) in RABL](https://github.com/nesquena/rabl/wiki/Using-Layouts)
+ * [Backbone or Ember.js Integration](https://github.com/nesquena/rabl/wiki/Backbone-Integration)
+ * [RABL with Rails Engines](https://github.com/nesquena/rabl/wiki/Setup-rabl-with-rails-engines)
 
 Please add your own usages and let me know so we can add them here! Also be sure to check out
 the [RABL Wiki](https://github.com/nesquena/rabl/wiki) for other usages.
@@ -500,7 +581,9 @@ the [RABL Wiki](https://github.com/nesquena/rabl/wiki) for other usages.
 
 Tutorials can always be helpful when first getting started:
 
- * [Railscasts #322](http://railscasts.com/episodes/322-rabl)
+ * [Railscasts #322](http://railscasts.com/episodes/322-rabl) - Ryan Bates explains RABL
+ * [BackboneRails](http://www.backbonerails.com/) - Great screencasts by Brian Mann
+ * [Creating an API with RABL and Padrino](http://blog.crowdint.com/2012/10/22/rabl-with-padrino.html)
  * http://blog.joshsoftware.com/2011/12/23/designing-rails-api-using-rabl-and-devise/
  * http://engineering.gomiso.com/2011/06/27/building-a-platform-api-on-rails/
  * http://blog.lawrencenorton.com/better-json-requests-with-rabl
@@ -516,14 +599,17 @@ Let me know if there's any other useful resources not listed here.
 
 There are other libraries that can either complement or extend the functionality of RABL:
 
+ * [versioncake](https://github.com/bwillis/versioncake) - Excellent library for easily versioning your RABL APIs
  * [gon](https://github.com/gazay/gon) - Exposes your Rails variables in JS with RABL support integrated.
+ * [rabl-rails](https://github.com/ccocchi/rabl-rails) - Reimplementation for RABL and Rails
+   [focused on speed](https://github.com/ccocchi/rabl-benchmark/blob/master/BENCHMARK).
 
 Let me know if there's any other related libraries not listed here.
 
 ### Troubleshooting ###
 
- * Redundant calls for a collection: https://github.com/nesquena/rabl/issues/142#issuecomment-2969107
- * Testing RABL Views: https://github.com/nesquena/rabl/issues/130#issuecomment-4179285
+ * [Redundant calls for a collection](https://github.com/nesquena/rabl/issues/142#issuecomment-2969107)
+ * [Testing RABL Views](https://github.com/nesquena/rabl/issues/130#issuecomment-4179285)
 
 ### Examples ###
 
@@ -534,12 +620,6 @@ See the [examples](https://github.com/nesquena/rabl/tree/master/examples) direct
 Check out the [Issues](https://github.com/nesquena/rabl/issues) tab for a full list:
 
  * Rigorous benchmarking and performance optimizations
-
-## Continuous Integration ##
-
-[![Continuous Integration status](https://secure.travis-ci.org/nesquena/rabl.png)](http://travis-ci.org/nesquena/rabl)
-
-CI is hosted by [travis-ci.org](http://travis-ci.org).
 
 ## Authors and Contributors ##
 
@@ -572,6 +652,8 @@ Check out the patches for [msgpack support](https://github.com/nesquena/rabl/pul
 [BSON support](https://github.com/nesquena/rabl/pull/163) for reference.
 
 Please fork and contribute, any help in making this project better is appreciated!
+
+This project is a member of the [OSS Manifesto](http://ossmanifesto.org).
 
 ## Inspirations ##
 

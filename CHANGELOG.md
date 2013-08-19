@@ -1,8 +1,82 @@
 # CHANGELOG
 
-## 0.7.2 (unreleased)
+## 0.8.7 (Unreleased)
+
+ * FIX #142 Better resource resolution for AR Scopes
+
+## 0.8.6
+
+ * FIX #142 #467 Do not use a collection as the default object. (Thanks @mrbrdo)
+ * NEW Options hash for glue function added (Thanks @sassysolutions)
+ * FIX #470 Better template lookups when Padrino is defined (Thanks @LTe)
+
+## 0.8.5
+
+ * FIX #386 Support disabling root on child calls (Thanks @digger69)
+
+## 0.8.4
+
+ * NEW #411 Add "replace nil values with empty strings" option (Thanks @manuelmeurer)
+
+## 0.8.3
+
+ * Closes #421 bug with locals in engine
+
+## 0.8.2
+
+ * Passing locals when rendering templates via partials or inheritance (Thanks @simsalabim)
+
+## 0.8.1
+
+ * Fix to respect @collection :root for xml output (Thanks @chinshr)
+
+## 0.8.0
+
+ * Remove multi_json dependency, simpler JSON handling
+
+## 0.7.10
+
+ * Add early support for Rails 4 (Thanks @jopotts)
+ * Add configuration option for raising on missing attributes (Thanks @ReneB)
+ * Allow caching outside the Rails environment (Thanks @flyerhzm)
+ * Fix template lookup on Rails (Thanks @vimutter)
+
+## 0.7.9
+
+ * Replace yajl with oj in docs and tests
+ * Fix handling of empty children arrays with tests (Thanks @sethvargo)
+
+## 0.7.8
+
+  * Additional fix for attribute conditional support
+
+## 0.7.7
+
+  * Fix #344 to avoid: "warning: default `to_a' will be obsolete"
+  * Fix #356 by adding 'known object classes' like struct to be recognized as objects.
+  * Fix #354 by adding 'if' and 'unless' to `attribute` (Thanks @andrewhubbs)
+
+## 0.7.6
+
+  * Fix render behavior by separating data_object and data_name in engine
+  * Fix regression with 'child' behavior with nil on extends (with tests)
+
+## 0.7.5
+
+  * Avoid incorrectly setting implicit objects for 'object false' partials
+
+## 0.7.4
+
+  * Fix issue #347 with extends failing for custom object templates
+
+## 0.7.3
+
+  * Fix issue #342 with nil case for format checking in engine `request_params`
+
+## 0.7.2
 
   * Set instance variables for locals in engine instead of renderer (Thanks @geehsien)
+  * Changes default JSON engine for Rails, move logic to separate class (Thanks @shmeltex)
 
 ## 0.7.1
 

@@ -21,11 +21,10 @@ module Rabl
     # options must have :source (rabl file contents)
     # options can have :source_location (source filename)
     def object_to_hash(object, options={}, &block)
-      return object unless is_object?(object) || is_collection?(object)
+      return object if object.nil?
       return [] if is_collection?(object) && object.blank? # empty collection
       engine_options = options.reverse_merge(:format => "hash", :view_path => @_view_path, :root => (options[:root] || false))
-      locals = (options[:locals] || {}).merge(:object => object)
-      Rabl::Engine.new(options[:source], engine_options).render(@_scope, locals, &block)
+      Rabl::Engine.new(options[:source], engine_options).render(@_scope, :object => object, :locals => options[:locals], &block)
     end
 
     # Returns source for a given relative file
@@ -33,7 +32,7 @@ module Rabl
     def fetch_source(file, options={})
       view_paths = Array(options[:view_path]) + Array(Rabl.configuration.view_paths)
       Rabl.source_cache(file, view_paths) do
-        file_path = if defined?(Padrino) && context_scope.respond_to?(:settings)
+        file_path = if defined?(Padrino) && context_scope.respond_to?(:settings) && context_scope.respond_to?(:resolve_template)
           fetch_padrino_source(file, options)
         elsif defined?(Rails) && context_scope.respond_to?(:view_paths)
           _view_paths = view_paths + Array(context_scope.view_paths.to_a)
@@ -77,7 +76,8 @@ module Rabl
             source_format = rendered_format unless rendered_format == :html
             context_scope.lookup_context.find(file, [], partial, [], {:formats => [source_format]})
           end }
-        template = lookup_proc.call(false) rescue lookup_proc.call(true)
+        template = lookup_proc.call(false) rescue nil
+        template ||= lookup_proc.call(true) rescue nil
         template.identifier if template
       elsif source_format && context_scope.respond_to?(:view_paths) # Rails 2
         template = context_scope.view_paths.find_template(file, source_format, false)

@@ -1,11 +1,17 @@
+require 'json'
 require File.expand_path('../teststrap', __FILE__)
-require File.expand_path('../../lib/rabl', __FILE__)
-require File.expand_path('../../lib/rabl/template', __FILE__)
-require File.expand_path('../models/user', __FILE__)
+require 'rabl/template'
 require File.expand_path('../models/ormless', __FILE__)
 
 context "Rabl::Engine" do
   helper(:rabl) { |t| RablTemplate.new { t } }
+  # context_scope 'users', [@user]
+  helper(:context_scope) { |name, value|
+    scope = Object.new
+    stub(scope).controller { stub(Object).controller_name { name } }
+    scope.instance_variable_set :"@#{name}", value
+    scope
+  }
 
   context "#initialize" do
     setup do
@@ -173,8 +179,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'irvine')
-        template.render(scope).split('').sort
-      end.equals "{\"user\":{\"name\":\"irvine\"}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"name\":\"irvine\"}}")
 
       asserts "that it can add attribute under a different key name through :as" do
         template = rabl %{
@@ -183,8 +189,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'irvine')
-        template.render(scope).split('').sort
-      end.equals "{\"user\":{\"city\":\"irvine\"}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"city\":\"irvine\"}}")
 
       asserts "that it can add attribute under a different key name through hash" do
         template = rabl %{
@@ -193,8 +199,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'irvine')
-        template.render(scope).split('').sort
-      end.equals "{\"user\":{\"city\":\"irvine\"}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"city\":\"irvine\"}}")
     end
 
     context "#code" do
@@ -202,15 +208,15 @@ context "Rabl::Engine" do
         template = rabl %{
           code(:foo) { 'bar' }
         }
-        template.render(Object.new).split('').sort
-      end.equals "{\"foo\":\"bar\"}".split('').sort
+        template.render(Object.new)
+      end.equals "{\"foo\":\"bar\"}"
 
       asserts "that it can be passed conditionals" do
         template = rabl %{
           code(:foo, :if => lambda { |i| false }) { 'bar' }
         }
-        template.render(Object.new).split('').sort
-      end.equals "{}".split('').sort
+        template.render(Object.new)
+      end.equals "{}"
 
       asserts "that it can merge the result with a collection element given no name" do
         template = rabl %{
@@ -221,8 +227,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@users, [User.new(:name => 'a'), User.new(:name => 'b')]
-        template.render(scope).split('').sort
-      end.equals "[{\"user\":{\"name\":\"a\"}},{\"user\":{\"name\":\"b\"}}]".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("[{\"user\":{\"name\":\"a\"}},{\"user\":{\"name\":\"b\"}}]")
 
       asserts "that it can merge the result on a child node given no name" do
         template = rabl %{
@@ -236,8 +242,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
-        template.render(scope).split('').sort
-      end.equals "{\"user\":{\"name\":\"leo\",\"user\":{\"city\":\"LA\"}}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"name\":\"leo\",\"user\":{\"city\":\"LA\"}}}")
     end
 
     context "#child" do
@@ -249,8 +255,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
-        template.render(scope).split('').sort
-      end.equals "{\"user\":{\"name\":\"leo\",\"user\":{\"city\":\"LA\"}}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"name\":\"leo\",\"user\":{\"city\":\"LA\"}}}")
 
       asserts "that it can create a child node with different key" do
         template = rabl %{
@@ -260,9 +266,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
-        template.render(scope).split('').sort
-
-      end.equals "{\"user\":{\"name\":\"leo\",\"person\":{\"city\":\"LA\"}}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"name\":\"leo\",\"person\":{\"city\":\"LA\"}}}")
 
       asserts "that it passes the data object to the block" do
         template = rabl %{
@@ -275,6 +280,31 @@ context "Rabl::Engine" do
         scope.instance_variable_set :@user, User.new(:name => 'leo')
         template.render(scope)
       end.equals "{\"user\":{\"person\":{\"name\":\"leo\"}}}"
+
+      asserts "it sets root node for child collection" do
+        template = rabl %{
+          object @user
+          attribute :name
+          child(@users) { attribute :city }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
+        scope.instance_variable_set :@users, [User.new(:name => 'one', :city => 'UNO'), User.new(:name => 'two', :city => 'DOS')]
+        template.render(scope)
+      end.equals "{\"user\":{\"name\":\"leo\",\"users\":[{\"user\":{\"city\":\"UNO\"}},{\"user\":{\"city\":\"DOS\"}}]}}"
+
+      asserts "it allows suppression of root node for child collection" do
+        template = rabl %{
+          object @user
+          attribute :name
+          child(@users, :object_root => false) { attribute :city }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
+        scope.instance_variable_set :@users, [User.new(:name => 'one', :city => 'UNO'), User.new(:name => 'two', :city => 'DOS')]
+        template.render(scope)
+      end.equals "{\"user\":{\"name\":\"leo\",\"users\":[{\"city\":\"UNO\"},{\"city\":\"DOS\"}]}}"
+
     end
 
     context "#glue" do
@@ -287,8 +317,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA', :age => 12)
-        template.render(scope).split('').sort
-      end.equals "{\"user\":{\"name\":\"leo\",\"city\":\"LA\",\"age\":12}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"user\":{\"name\":\"leo\",\"city\":\"LA\",\"age\":12}}")
 
       asserts "that it passes the data object to the block" do
         template = rabl %{
@@ -301,10 +331,29 @@ context "Rabl::Engine" do
       end.equals "{\"user\":{\"age\":12}}"
     end
 
+    context "#partial" do
+      asserts "that it creates object from partial and passes local" do
+        template = rabl %{
+         object false
+         node :foo do
+           partial("foo/bar", :object => @user, :locals => { :foo => "bar" })
+         end
+        }
+        scope = Object.new
+        @user = User.new(:name => 'leo', :city => 'LA', :age => 12)
+        scope.instance_variable_set :@user, @user
+        any_instance_of(Rabl::Engine) do |b|
+          mock(b).fetch_source("foo/bar", :view_path => nil).once
+          mock(b).object_to_hash(@user, :locals => { :foo => "bar" }, :source => nil, :source_location => nil).returns({ :name => 'leo', :city => 'LA', :age => 12 })
+        end
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{ \"foo\" : {\"name\":\"leo\",\"city\":\"LA\",\"age\":12} }")
+    end
+
     teardown do
       Rabl.reset_configuration!
     end
-  end
+  end # with json root
 
   context "without json root" do
     setup do
@@ -320,11 +369,17 @@ context "Rabl::Engine" do
         template = rabl %{
           attribute :name
         }
-        scope = Object.new
-        stub(scope).controller { stub(Object).controller_name { "a/b/c::d/user" } }
-        scope.instance_variable_set :@user, User.new
+        scope = context_scope('user', User.new)
         template.render(scope).split
       end.equals "{\"name\":\"rabl\"}".split
+
+      asserts "that it does not set a collection as default object" do
+        template = rabl %{
+          attribute :name
+        }
+        scope = context_scope('user', [])
+        template.render(scope).split
+      end.equals "{}".split
 
       asserts "that it sets data source" do
         template = rabl %q{
@@ -424,7 +479,62 @@ context "Rabl::Engine" do
         scope.instance_variable_set :@user, User.new(:name => 'irvine')
         template.render(scope)
       end.equals "{\"city\":\"irvine\"}"
-    end
+
+      asserts "that it handle structs correctly as child elements" do
+        template = rabl %{
+          object @user
+          child(:city) do
+            attributes :name
+          end
+        }
+        City = Struct.new(:name)
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:city => City.new('San Francisco'))
+        template.render(scope)
+      end.equals "{\"city\":{\"name\":\"San Francisco\"}}"
+
+      asserts "that it can be passed an if cond for single real attr" do
+        template = rabl %{
+          object @user
+          attribute :name
+          attributes :age, :first, :if => lambda { |i| i.name != 'irvine' }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'irvine')
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"name\":\"irvine\"}")
+
+      asserts "that it can be passed an if cond for aliased attrs" do
+        template = rabl %{
+          object @user
+          attributes :name => :title, :age => :year, :if => lambda { |i| i.name == 'irvine' }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'irvine')
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"title\":\"irvine\",\"year\":24}")
+
+      asserts "that it can be passed an unless cond to hide attrs" do
+        template = rabl %{
+          object @user
+          attribute :name
+          attributes :age, :unless => lambda { |i| i.name == 'irvine' }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'irvine')
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"name\":\"irvine\"}")
+
+      asserts "that it can be passed an unless cond for aliased attrs" do
+        template = rabl %{
+          object @user
+          attributes :name => :title, :age => :year, :unless => lambda { |i| i.name == 'irvine' }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'irvine')
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{}")
+    end # attribute
 
     context "#code" do
       asserts "that it can create an arbitraty code node" do
@@ -443,7 +553,7 @@ context "Rabl::Engine" do
     end
 
     context "#child" do
-      asserts "that it can create a child node" do
+      asserts "that it can create a singular child node" do
         template = rabl %{
           object @user
           attribute :name
@@ -451,10 +561,10 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
-        template.render(scope).split('').sort
-      end.equals "{\"name\":\"leo\",\"user\":{\"city\":\"LA\"}}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"name\":\"leo\",\"user\":{\"city\":\"LA\"}}")
 
-      asserts "that it can create a child node with different key" do
+      asserts "that it can create a singular child node with different key" do
         template = rabl %{
           object @user
           attribute :name
@@ -462,9 +572,41 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
-        template.render(scope).split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"name\":\"leo\",\"person\":{\"city\":\"LA\"}}")
 
-      end.equals "{\"name\":\"leo\",\"person\":{\"city\":\"LA\"}}".split('').sort
+      asserts "that it can create a many child node" do
+        template = rabl %{
+          object @user
+          attribute :name
+          child(:hobbies) { attribute :name }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse(%q^{"name":"leo", "hobbies":[{"hobby":{"name":"Photography"}}]}^)
+
+      asserts "that it can create a many child node with different key" do
+        template = rabl %{
+          object @user
+          attribute :name
+          child(:hobbies => :interests) { attribute :name }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse(%q^{"name":"leo", "interests":[{"interest":{"name":"Photography"}}]}^)
+
+      asserts "that it can create a many child node with no data" do
+        template = rabl %{
+          object @user
+          attribute :name
+          child(:hobbies) { attribute :name }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA', :hobbies => [])
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse(%q^{"name":"leo", "hobbies":[]}^)
 
       asserts "that it can be passed conditionals" do
         template = rabl %{
@@ -474,9 +616,8 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA')
-        template.render(scope).split('').sort
-
-      end.equals "{\"name\":\"leo\"}".split('').sort
+        template.render(scope)
+      end.equals "{\"name\":\"leo\"}"
     end
 
     context "#glue" do
@@ -489,14 +630,25 @@ context "Rabl::Engine" do
         }
         scope = Object.new
         scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA', :age => 12)
-        template.render(scope).split('').sort
-      end.equals "{\"name\":\"leo\",\"city\":\"LA\",\"age\":12}".split('').sort
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"name\":\"leo\",\"city\":\"LA\",\"age\":12}")
+
+      asserts "that it can be passed conditionals" do
+        template = rabl %{
+          object @user
+          attribute :name
+          glue(@user, {:if => lambda { |i| false }}) { attribute :age  }
+        }
+        scope = Object.new
+        scope.instance_variable_set :@user, User.new(:name => 'leo', :city => 'LA', :age => 12)
+        JSON.parse(template.render(scope))
+      end.equals JSON.parse("{\"name\":\"leo\"}")
     end
 
     teardown do
       Rabl.reset_configuration!
     end
-  end
+  end # without json root
 
   context "without child root" do
     setup do
@@ -508,7 +660,6 @@ context "Rabl::Engine" do
     end
 
     context "#child" do
-
       asserts "that it can create a child node without child root" do
         template = rabl %{
           child @users
@@ -517,7 +668,6 @@ context "Rabl::Engine" do
         scope.instance_variable_set :@users, [User.new, User.new]
         template.render(scope)
       end.equals "{\"users\":[{},{}]}"
-
     end
 
     teardown do

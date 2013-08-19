@@ -23,16 +23,18 @@ module Rabl
       reset_options!
       @_locals, @_scope = locals, scope
       self.copy_instance_variables_from(@_scope, [:@assigns, :@helpers])
+      locals.merge!(locals.delete(:locals) || {})
       locals.each { |k,v| instance_variable_set(:"@#{k}", v) }
       @_options[:scope] = @_scope
       @_options[:format] ||= self.request_format
-      @_data = locals[:object] || self.default_object
+      data = locals[:object].nil? ? self.default_object : locals[:object]
+      @_data_object, @_data_name = data_object(data), data_name(data)
       if @_options[:source_location]
         instance_eval(@_source, @_options[:source_location]) if @_source.present?
       else # without source location
         instance_eval(@_source) if @_source.present?
       end
-      instance_exec(data_object(@_data), &block) if block_given?
+      instance_exec(@_data_object, &block) if block_given?
       cache_results { self.send("to_" + @_options[:format].to_s) }
     end
 
@@ -40,9 +42,9 @@ module Rabl
     # to_hash(:root => true, :child_root => true)
     def to_hash(options={})
       options = @_options.merge(options)
-      data = data_object(@_data)
+      data = @_data_object
       builder = Rabl::Builder.new(options)
-      options[:root_name] = determine_object_root(@_data, options[:root])
+      options[:root_name] = determine_object_root(@_data_object, @_data_name, options[:root])
 
       if is_object?(data) || !data # object @user
         builder.build(data, options)
@@ -88,8 +90,9 @@ module Rabl
       include_root = Rabl.configuration.include_xml_root
       include_child_root = include_root && Rabl.configuration.include_child_root
       options = options.reverse_merge(:root => include_root, :child_root => include_child_root)
-      xml_options = Rabl.configuration.default_xml_options.merge(:root => data_name(@_data))
-      to_hash(options).to_xml(xml_options)
+      xml_options = Rabl.configuration.default_xml_options.merge(:root => collection_root_name || @_data_name)
+      result = to_hash(options)
+      result.to_xml(xml_options)
     end
 
     # Returns a bson representation of the data object
@@ -100,8 +103,8 @@ module Rabl
       options = options.reverse_merge(:root => include_root, :child_root => include_child_root)
       result = if collection_root_name
                  { collection_root_name => to_hash(options) }
-               elsif is_collection?(@_data) && @_data.is_a?(Array)
-                 { data_name(@_data) => to_hash(options) }
+               elsif is_collection?(@_data_object) && @_data_object.is_a?(Array)
+                 { @_data_name => to_hash(options) }
                else
                  to_hash(options)
                end
@@ -112,15 +115,17 @@ module Rabl
     # object(@user)
     # object @user => :person
     # object @users
-    def object(data)
-      @_data = data unless @_locals[:object]
+    def object(template_data)
+      current_data  = (@_locals[:object].nil? || template_data == false) ? template_data : @_locals[:object]
+      @_data_object = data_object(current_data)
+      @_data_name   = data_name(template_data.is_a?(Hash) && !current_data.is_a?(Hash) ? template_data : current_data)
     end
 
     # Returns the current object that is the topic of this template
     # Can be the collection or the object depending on topic assigned
     # root_object => @user
     def root_object
-      @_data
+      @_data_object
     end
 
     # Sets the object as a collection casted to a simple array
@@ -132,7 +137,7 @@ module Rabl
       @_collection_name = options[:root] if options[:root]
       @_collection_name ||= data.values.first if data.respond_to?(:each_pair)
       @_object_root_name = options[:object_root] if options.has_key?(:object_root)
-      self.object(data_object(data).to_a)
+      self.object(Array(data_object(data)))
     end
 
     # Sets the cache key to be used by ActiveSupport::Cache.expand_cache_key
@@ -143,19 +148,21 @@ module Rabl
     # cache 'user', expires_in: 1.hour
     # options is passed through to the cache store
     def cache(key = nil, options = nil)
-      key ||= @_data # if called but missing, use object
+      key ||= @_data_object # if called but missing, use object
       @_cache = [key, options]
     end
 
     # Indicates an attribute or method should be included in the json output
     # attribute :foo, :as => "bar"
-    # attribute :foo => :bar
+    # attribute :foo => :bar, :bar => :baz
+    # attribute :foo => :bar, :bar => :baz, :if => lambda { |r| r.foo }
     def attribute(*args)
       if args.first.is_a?(Hash) # :foo => :bar, :bar => :baz
-        args.first.each_pair { |k,v| self.attribute(k, :as => v) }
+        attr_aliases, conds = args.first.except(:if, :unless), args.first.slice(:if, :unless)
+        attr_aliases.each_pair { |k,v| self.attribute(k, conds.merge(:as => v)) }
       else # array of attributes i.e :foo, :bar, :baz
-        options = args.extract_options!
-        args.each { |name| @_options[:attributes][name] = options[:as] || name }
+        attr_options = args.extract_options!
+        args.each { |name| @_options[:attributes][name] = attr_options }
       end
     end
     alias_method :attributes, :attribute
@@ -202,7 +209,8 @@ module Rabl
       if context_scope.respond_to?(:controller)
         controller_name = context_scope.controller.controller_name
         stripped_name = controller_name.split(%r{::|\/}).last
-        instance_variable_get("@#{stripped_name}")
+        ivar_object = instance_variable_get("@#{stripped_name}")
+        ivar_object if is_object?(ivar_object)
       end
     end
 
@@ -219,7 +227,7 @@ module Rabl
     # Returns the request parameters if available in the scope
     # request_params => { :foo => "bar" }
     def request_params
-      context_scope.respond_to?(:params) ? context_scope.params : {}
+      (context_scope.params if context_scope.respond_to?(:params)) || {}
     end
 
     # Returns data as json embraced with callback when detected
@@ -227,7 +235,7 @@ module Rabl
     # format_json("{ foo : "bar" }") => "test({ foo : 'bar' })"
     def format_json(json_output)
       json_engine = Rabl.configuration.json_engine
-      json_method = json_engine.respond_to?(:dump) ? 'dump' : 'encode' # multi_json compatibility TODO
+      json_method = json_engine.respond_to?(:dump) ? 'dump' : 'encode'
       json_output = json_engine.send(json_method, json_output) unless json_output.is_a?(String)
       use_callback = Rabl.configuration.enable_json_callbacks && request_params[:callback].present?
       use_callback ? "#{request_params[:callback]}(#{json_output})" : json_output
