@@ -40,13 +40,34 @@ if defined?(ActionView) && defined?(Rails) && Rails.version.to_s =~ /^2/
   ActionView::Template.register_template_handler :rabl, ActionView::TemplateHandlers::RablHandler
 end
 
-# Rails 3.X Template
+# Rails 3/4 Template
 if defined?(ActionView) && defined?(Rails) && Rails.version.to_s =~ /^[34]/
   module ActionView
     module Template::Handlers
       class Rabl
         class_attribute :default_format
         self.default_format = Mime::JSON
+
+        def self.call(template)
+          source = template.source
+
+          %{ ::Rabl::Engine.new(#{source.inspect}).
+              render(self, assigns.merge(local_assigns)) }
+        end # call
+      end # rabl class
+    end # handlers
+  end
+
+  ActionView::Template.register_template_handler :rabl, ActionView::Template::Handlers::Rabl
+end
+
+# Rails 5/6 Template
+if defined?(ActionView) && defined?(Rails) && Rails.version.to_s =~ /^[56]/
+  module ActionView
+    module Template::Handlers
+      class Rabl
+        class_attribute :default_format
+        self.default_format = Mime[:json]
 
         def self.call(template)
           source = template.source
